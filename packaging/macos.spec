@@ -4,7 +4,7 @@ from pathlib import Path
 
 root = Path(SPECPATH).parent
 architecture = os.environ.get("SIDEE_TARGET_ARCH")
-version = os.environ.get("SIDEE_BUILD_VERSION", "0.1.1")
+version = os.environ.get("SIDEE_BUILD_VERSION", "0.1.3")
 identity = os.environ.get("SIDEE_CODESIGN_IDENTITY") or None
 entitlements = os.environ.get("SIDEE_ENTITLEMENTS_FILE") or None
 
