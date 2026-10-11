@@ -9,7 +9,7 @@ from unittest.mock import patch
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from core import client, protocol, presets  # noqa: E402
+from core import client, protocol, presets, webui  # noqa: E402
 
 TS = 1791229505
 
@@ -166,6 +166,41 @@ class TestPresets(unittest.TestCase):
         self.assertTrue(f("nas.casa.local"))
         self.assertFalse(f("172.32.1.1"))
         self.assertFalse(f("media.example.com"))
+
+
+class TestManualTvIP(unittest.TestCase):
+    def test_rejects_non_lan_ip_without_contacting_any_host(self):
+        with patch("core.webui.client.fetch_descriptor") as descriptor:
+            for host in ("", "127.0.0.1", "8.8.8.8", "169.254.2.2",
+                         "224.0.0.1", "not-an-address"):
+                self.assertFalse(webui._probe_tv_ip(host)["ok"])
+            descriptor.assert_not_called()
+
+    def test_verified_vidaa_host_can_be_selected_for_pin_pairing(self):
+        tv = client.TvInfo("192.168.1.52", friendly_name="Living room",
+                           is_vidaa=True, raw_description="<private description>")
+        with patch("core.webui.client.fetch_descriptor", return_value=tv), \
+             patch("core.webui.socket.create_connection"):
+            result = webui._probe_tv_ip(tv.host)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["tv"]["host"], tv.host)
+        self.assertEqual(result["tv"]["raw_description"], "")
+        self.assertIn("PIN", result["message"])
+
+    def test_tcp_blocked_after_vidaa_identification(self):
+        tv = client.TvInfo("10.1.0.4", is_vidaa=True)
+        with patch("core.webui.client.fetch_descriptor", return_value=tv), \
+             patch("core.webui.socket.create_connection", side_effect=OSError("blocked")):
+            result = webui._probe_tv_ip(tv.host)
+        self.assertFalse(result["ok"])
+        self.assertIn("36669", result["error"])
+
+    def test_open_tcp_does_not_bypass_vidaa_identification(self):
+        with patch("core.webui.client.fetch_descriptor", return_value=None), \
+             patch("core.webui.socket.create_connection"):
+            result = webui._probe_tv_ip("192.168.3.4")
+        self.assertFalse(result["ok"])
+        self.assertIn("verify", result["error"])
 
 
 class TestCertificateBundle(unittest.TestCase):
