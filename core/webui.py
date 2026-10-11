@@ -61,6 +61,37 @@ def _phone_access(port: int, tv_host: str | None = None) -> dict:
     return {"ok": True, "url": url, "qr": qr_image(url)}
 
 
+def _probe_tv_ip(host: str) -> dict:
+    """Verify a manually entered LAN IPv4 before allowing PIN pairing."""
+    try:
+        address = ipaddress.IPv4Address(host)
+    except ipaddress.AddressValueError:
+        return {"ok": False, "error": "Enter a valid TV IPv4 address, e.g. 192.168.1.50."}
+    # Do not probe Internet, loopback, link-local or multicast addresses.
+    subnets = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    if not any(address in ipaddress.IPv4Network(net) for net in subnets):
+        return {"ok": False, "error": "Use a private IPv4 address on your home network."}
+    info = client.fetch_descriptor(str(address))
+    try:
+        with socket.create_connection((str(address), client.MQTT_PORT), timeout=2):
+            mqtt_open = True
+    except OSError:
+        mqtt_open = False
+    if not info or not info.is_vidaa:
+        message = ("Port 36669 responds, but Sidee could not verify a VIDAA TV "
+                   "using its device description." if mqtt_open else
+                   "No VIDAA TV description or port 36669 response at that IP. "
+                   "Check the TV address, its network and VPN settings.")
+        return {"ok": False, "error": message}
+    if not mqtt_open:
+        return {"ok": False, "error": "VIDAA TV found, but TCP port 36669 is "
+                "unreachable. Check local network permissions, VPN, firewall "
+                "and Wi-Fi isolation."}
+    return {"ok": True, "tv": {**info.__dict__, "raw_description": ""},
+            "message": "VIDAA TV verified by IP. Automatic SSDP discovery may "
+                       "be blocked; PIN pairing is still required."}
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -153,6 +184,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                            str(data.get("pin", ""))))
             elif parts.path == "/api/pair/cancel":
                 self._json(PAIRING.cancel(str(data.get("pairing_id", ""))))
+            elif parts.path == "/api/tv/check":
+                self._json(_probe_tv_ip(str(data.get("host", "")).strip()))
             elif (parts.path == "/api/shutdown" and
                   getattr(self.server, "headless", False) and
                   ipaddress.ip_address(self.client_address[0]).is_loopback):
