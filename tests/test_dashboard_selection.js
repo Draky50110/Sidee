@@ -41,7 +41,7 @@ class Element {
   scrollIntoView() {}
 }
 
-async function dashboard(savedStatus, discoveryResults, phoneResponse) {
+async function dashboard(savedStatus, discoveryResults, phoneResponse, directResponse) {
   const nodes = new Map();
   const node = id => {
     if (!nodes.has(id)) nodes.set(id, new Element(id));
@@ -64,6 +64,8 @@ async function dashboard(savedStatus, discoveryResults, phoneResponse) {
       else if (url.pathname === "/api/discover") {
         result = discoveryResults[discoveryIndex++];
         if (result instanceof Error) throw result;
+      } else if (url.pathname === "/api/tv/check") {
+        result = directResponse || {ok: false, error: "No VIDAA TV at that address"};
       } else if (url.pathname === "/api/phone") {
         result = phoneResponse ? await phoneResponse(url) : {ok: true, url: "http://10.23.7.5/?key=fixture-key", qr: "data:image/svg+xml;base64,fixture"};
       } else result = {ok: true};
@@ -76,12 +78,36 @@ async function dashboard(savedStatus, discoveryResults, phoneResponse) {
     node,
     requests,
     find: async () => { await node("btnFind").onclick(); },
+    checkIp: async ip => { node("manualIp").value = ip; await node("btnFindIp").onclick(); },
     choose: async host => { node("tvselect").value = host; await node("tvselect").onchange(); },
   };
 }
 
 const saved = host => ({paired: true, state: "ok", host, expires_at: Date.now() / 1000 + 86400});
 const found = (...hosts) => ({ok: true, tvs: hosts.map((host, index) => ({host, friendly_name: "TV " + (index + 1)}))});
+
+test("manual IPv4 probe finds a VIDAA TV but still requires pairing", async () => {
+  const app = await dashboard({paired: false, state: "needs_pairing"}, [], undefined, {
+    ok: true,
+    tv: {host: "192.168.5.52", friendly_name: "Living room", is_vidaa: true},
+    message: "VIDAA TV verified",
+  });
+  await app.checkIp("192.168.5.52");
+  assert.match(app.node("tvname").textContent, /192\\.168\\.5\\.52/);
+  assert.equal(app.node("btnRequest").disabled, false);
+  assert.equal(app.node("btnInstall").disabled, true);
+  assert.equal(app.requests.filter(url => url.pathname === "/api/tv/check").length, 1);
+});
+
+test("a failed manual IP check cannot unlock installation", async () => {
+  const app = await dashboard(saved("192.168.5.52"), [], undefined, {
+    ok: false, error: "TCP port 36669 is unreachable",
+  });
+  await app.checkIp("192.168.5.52");
+  assert.equal(app.node("btnRequest").disabled, true);
+  assert.equal(app.node("btnInstall").disabled, true);
+  assert.match(app.node("manualError").textContent, /36669/);
+});
 
 test("saved pairing does not preselect a TV before discovery", async () => {
   const app = await dashboard(saved("192.168.1.10"), []);
