@@ -93,7 +93,7 @@ test("manual IPv4 probe finds a VIDAA TV but still requires pairing", async () =
     message: "VIDAA TV verified",
   });
   await app.checkIp("192.168.5.52");
-  assert.match(app.node("tvname").textContent, /192\\.168\\.5\\.52/);
+  assert.match(app.node("tvname").textContent, /192\.168\.5\.52/);
   assert.equal(app.node("btnRequest").disabled, false);
   assert.equal(app.node("btnInstall").disabled, true);
   assert.equal(app.requests.filter(url => url.pathname === "/api/tv/check").length, 1);
