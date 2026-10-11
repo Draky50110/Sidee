@@ -95,6 +95,10 @@
     #pin { width: 100%; max-width: 112px; font-variant-numeric: tabular-nums; text-align: center; letter-spacing: .18em; }
     .pin-field { flex: 0 1 112px; }
     .device-field { margin-top: 12px; }
+    .manual-tv { margin-top: 12px; background: transparent; }
+    .manual-tv summary { padding: 10px; min-height: 36px; color: var(--muted); }
+    .manual-tv-body { display: grid; gap: 10px; padding: 4px 10px 12px; }
+    .manual-tv .button { width: 100%; }
     .field-error { color: var(--negative); font-size: 12px; margin-top: 8px; }
     .ready-note { display: flex; align-items: center; gap: 8px; min-height: 44px; margin-top: 14px; color: var(--muted); font-size: 12px; }
     .ready-note .icon { width: 17px; height: 17px; }
@@ -243,6 +247,14 @@
           <p id="tvname">Turn on your TV and connect it to the same network as this device.</p>
           <div class="field device-field" id="deviceField" hidden><label for="tvselect">Choose your TV</label><select id="tvselect"></select></div>
           <div class="step-actions"><button class="button secondary" id="btnFind"><svg class="icon" aria-hidden="true"><use href="#i-tv"/></svg><span>Find TV</span></button></div>
+          <details class="manual-tv">
+            <summary>TV not found? Check its IP address</summary>
+            <div class="manual-tv-body">
+              <div class="field"><label for="manualIp">TV's local IPv4 address</label><input id="manualIp" type="text" inputmode="decimal" spellcheck="false" maxlength="15" placeholder="192.168.1.50" aria-describedby="manualHelp manualError"><span class="help-text" id="manualHelp">Use the address from the TV's network settings. Sidee checks its VIDAA identity and connection port before pairing.</span></div>
+              <button class="button secondary" id="btnFindIp"><span>Check TV IP</span></button>
+              <div class="field-error" id="manualError" role="alert" hidden></div>
+            </div>
+          </details>
         </div>
         <div class="step" id="stepPair">
           <div class="step-heading"><span class="step-number">2</span><h3>Make the connection</h3></div>
@@ -362,6 +374,8 @@
       $("btnPair").disabled = !pairingId || pairBusy || installBusy || findBusy;
       $("pin").disabled = !pairingId || pairBusy || installBusy || findBusy;
       $("tvselect").disabled = pairBusy || installBusy || findBusy;
+      $("btnFindIp").disabled = pairBusy || installBusy || findBusy;
+      $("manualIp").disabled = pairBusy || installBusy || findBusy;
     }
 
     function resetPairing(cancel = true) {
@@ -465,6 +479,53 @@
         updatePairControls();
         updateInstallButtons();
       }
+    };
+    $("btnFindIp").onclick = async () => {
+      if (findBusy || pairBusy || installBusy) return;
+      const host = $("manualIp").value.trim();
+      $("manualError").hidden = true;
+      if (!host) {
+        $("manualError").textContent = "Enter the IPv4 address shown on your TV.";
+        $("manualError").hidden = false;
+        $("manualIp").focus();
+        return;
+      }
+      findBusy = true;
+      clearTV();
+      loadPhoneAccess();
+      busy("btnFindIp", true, "Checking…");
+      $("btnFind").disabled = true;
+      updatePairControls();
+      log("Checking your TV directly at " + host + "…");
+      try {
+        const result = await request("/api/tv/check", {host});
+        if (!result.ok || !result.tv) throw new Error(result.error || "TV could not be verified.");
+        devices = [result.tv];
+        const option = document.createElement("option");
+        option.value = result.tv.host;
+        option.textContent = result.tv.friendly_name + " · " + result.tv.host;
+        $("tvselect").replaceChildren(option);
+        $("tvselect").value = result.tv.host;
+        $("deviceField").hidden = true;
+        selectTV(result.tv);
+        await syncStatus();
+        loadPhoneAccess();
+        log(result.message || "TV verified. Click Request code to pair.", "ok");
+      } catch (error) {
+        $("manualError").textContent = error.message || "Couldn't check this TV IP.";
+        $("manualError").hidden = false;
+        log($("manualError").textContent, "err");
+      } finally {
+        findBusy = false;
+        busy("btnFindIp", false);
+        $("btnFind").disabled = false;
+        updatePairControls();
+        updateInstallButtons();
+      }
+    };
+    $("manualIp").oninput = () => { $("manualError").hidden = true; };
+    $("manualIp").onkeydown = event => {
+      if (event.key === "Enter" && !$("btnFindIp").disabled) $("btnFindIp").click();
     };
     $("tvselect").onchange = async () => {
       const selected = devices.find(device => device.host === $("tvselect").value);
