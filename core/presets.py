@@ -33,7 +33,7 @@ PRESETS: dict[str, dict] = {
         "url": "",  # built from the user's server address
         "needs_server": True,
         "server_placeholder": "Your server's IP or URL",
-        "image": "https://avatars.githubusercontent.com/u/35701260?s=512&v=4",
+        "image": "https://raw.githubusercontent.com/Empi9245/Sidee/main/assets/jellyfin-tile-bold.png",
         "icon": "assets/jellyfin.png",
         "description": "Your media from your Jellyfin server",
     },
