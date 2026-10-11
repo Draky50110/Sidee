@@ -100,6 +100,13 @@ to use `~/.sidee/session.json`. Keep tokens and dashboard access links private.
    your computer, then press **Find TV** in the dashboard.
    Sidee uses the address returned by discovery, without a preset TV IP.
    Saved pairings are reused only after that TV has been found and selected.
+   If automatic discovery fails, expand **TV not found? Check its IP address**
+   and enter the IPv4 address from the TV's network settings. Sidee verifies
+   that this is a VIDAA TV and checks TCP port 36669 before allowing pairing.
+   A blocked discovery may indicate a Mac Local Network permission, VPN or
+   Wi-Fi isolation issue. An unreachable port 36669 suggests a connection
+   issue; neither check bypasses the TV PIN. The installed app list remains
+   limited to the presets maintained by the Sidee developer.
 2. **Request code** — click **Request code** to display a PIN on your TV.
    Enter those 4 digits in the dashboard's **TV PIN** field and click
    **Confirm code**. Keep the TV on while connecting. If the code expires,
