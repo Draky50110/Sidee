@@ -129,6 +129,12 @@ class Session:
     refresh_days: int = 0
     expires_at: float = 0.0     # LOCAL access expiry epoch (avoids clock skew)
     pair_failures: int = 0
+    auth_profile: str = "modern"
+
+    @property
+    def tokenless(self) -> bool:
+        return (self.auth_profile == "static" and not self.access_token
+                and not self.refresh_token)
 
     @classmethod
     def path(cls) -> str:
@@ -152,7 +158,15 @@ class Session:
             if (isinstance(value, bool) or not isinstance(value, (int, float))
                     or not math.isfinite(value) or value < 0):
                 raise AuthError("corrupt", "invalid session expiry values")
-        if not all((s.access_token, s.refresh_token, s.host, s.device_uuid)):
+        if s.auth_profile not in protocol.AUTH_PROFILES:
+            raise AuthError("corrupt", "unsupported TV authentication profile")
+        if not all((s.host, s.device_uuid)):
+            raise AuthError("corrupt", "incomplete or corrupted session")
+        if s.tokenless:
+            if not all((s.client_id, s.username)) or s.expires_at:
+                raise AuthError("corrupt", "incomplete static pairing")
+            return s
+        if not all((s.access_token, s.refresh_token)):
             raise AuthError("corrupt", "incomplete or corrupted session")
         if not s.expires_at and s.access_time and s.access_days:
             s.expires_at = s.access_time + s.access_days * 86400
@@ -313,7 +327,7 @@ def fetch_descriptor(host: str, location: str | None = None) -> TvInfo | None:
                               xml, re.S)
             desc = model.group(1) if model else ""
             is_vidaa = ("vidaa_support" in desc or "transport_protocol" in desc
-                        or "hisense" in xml.lower())
+                        or "hisense" in xml.lower() or "vidaa" in xml.lower())
             return TvInfo(host=host, friendly_name=(name.group(1) if name else host),
                           model=desc.strip()[:120], is_vidaa=is_vidaa,
                           raw_description=xml)
@@ -353,9 +367,13 @@ class MqttSession:
     """TV broker connection: message collection and actions gated by step."""
 
     def __init__(self, host: str, device_uuid: str, tv_ts: int,
-                 token: str | None = None):
+                 token: str | None = None, *, auth_profile: str = "modern",
+                 client_id: str | None = None, username: str | None = None):
         self.client_id, self.username, self.password = protocol.session_credentials(
-            device_uuid, tv_ts, token)
+            device_uuid, tv_ts, token, auth_profile=auth_profile)
+        # Token authentication belongs to the identity accepted during pairing.
+        self.client_id = client_id or self.client_id
+        self.username = username or self.username
         self.topics = protocol.tv_topics(self.client_id)
         self.host = host
         self.messages: list[tuple[str, str]] = []
@@ -444,20 +462,61 @@ def _stored_uuid() -> str | None:
     return s.device_uuid if s and s.device_uuid else None
 
 
+def _pairing_connection(host: str, device_uuid: str, timestamp: int,
+                        preferred: str = "modern") -> tuple[MqttSession, str]:
+    """Try each documented profile once, only after an explicit auth refusal.
+
+    Reference implementations: stevene1919/hisense_vidaa/crypto.py and
+    Lucent-/vidaa-control/vidaa/client.py (Toshiba static fallback).
+    Network and TLS failures cannot be fixed by changing credentials.
+    """
+    profiles = list(dict.fromkeys((preferred,) + protocol.AUTH_PROFILES))
+    attempted = []
+    for profile in profiles:
+        sess = MqttSession(host, device_uuid, timestamp, auth_profile=profile)
+        accepted = False
+        try:
+            rc = sess.start()
+            attempted.append(f"{profile}: rc={rc}")
+            log("auth", f"pairing connection {profile}: rc={rc}")
+            if rc == 0:
+                accepted = True
+                return sess, profile
+            if rc not in (4, 5):
+                raise ConnectionError(f"connection refused by the TV (rc={rc})")
+        finally:
+            if not accepted:
+                sess.stop()
+    raise ConnectionError(
+        "connection refused by the TV (" + "; ".join(attempted) + "). "
+        "The TV rejected all supported connection modes. Check its date/time "
+        "and mobile app settings, then request a new code.")
+
+
+def _saved_connection(session: Session, token: str | None) -> MqttSession:
+    return MqttSession(session.host, session.device_uuid,
+                       0 if session.tokenless else tv_timestamp(session.host), token=token,
+                       auth_profile=session.auth_profile,
+                       client_id=session.client_id or None,
+                       username=session.username or None)
+
+
 @_serialized_session
 def pair(host: str, pin_provider, timeout: float = 60.0) -> Session:
-    """Pairing: TV PIN -> tokens. Reuse the paired UUID;
+    """Pairing: TV PIN -> tokens or a verified static identity. Reuse the paired UUID;
     generate a new UUID only after multiple consecutive failures
     (invalid state on the TV)."""
-    stored = _stored_uuid()
+    previous = Session().load_or_none()
+    stored = previous.device_uuid if previous and previous.host == host else None
     reuse = (stored and stored != "NEW"
              and not _pair_failures_exceeded())
     device_uuid = stored if reuse else protocol.new_device_uuid()
-    sess = MqttSession(host, device_uuid, tv_timestamp(host))
+    sess = None
+    tok = None
     try:
-        rc = sess.start()
-        if rc != 0:
-            raise ConnectionError(f"connection refused by the TV (rc={rc})")
+        preferred = previous.auth_profile if reuse else "modern"
+        sess, auth_profile = _pairing_connection(host, device_uuid,
+                                                tv_timestamp(host), preferred)
         since = len(sess.messages)
         sess.subscribe([
             sess.topics["mobile"] + "ui_service/data/authentication",
@@ -465,9 +524,18 @@ def pair(host: str, pin_provider, timeout: float = 60.0) -> Session:
             sess.topics["token_reply"],
         ])
         time.sleep(0.3)
-        sess.publish(sess.topics["ui"] + "actions/vidaa_app_connect",
-                     protocol.pair_connect_payload())
-        if sess.wait_for("data/authentication", 15, since) is None:
+        notification = None
+        if auth_profile == "static":
+            # Pre-token firmware shows the PIN in response to a state query.
+            # Newer static-auth TVs can still use vidaa_app_connect.
+            sess.publish(sess.topics["ui"] + "actions/gettvstate", "")
+            notification = sess.wait_for("data/authentication", 5, since)
+        if notification is None:
+            sess.publish(sess.topics["ui"] + "actions/vidaa_app_connect",
+                         protocol.pair_connect_payload())
+            notification = sess.wait_for("data/authentication",
+                                         10 if auth_profile == "static" else 15, since)
+        if notification is None:
             raise TimeoutError("the TV did not display the PIN")
         pin = pin_provider()
         if not pin:
@@ -492,24 +560,39 @@ def pair(host: str, pin_provider, timeout: float = 60.0) -> Session:
         sess.publish(sess.topics["platform"] + "data/gettoken",
                      protocol.token_request_payload(""))
         sess.publish(sess.topics["ui"] + "actions/authenticationcodeclose", "")
-        raw = sess.wait_for("platform_service/data/tokenissuance", timeout,
+        raw = sess.wait_for("platform_service/data/tokenissuance",
+                            min(timeout, 5.0) if auth_profile == "static" else timeout,
                             since_pin)
         if raw is None:
-            raise TimeoutError("PIN accepted, but the TV did not send a token. "
-                               "Request a new code.")
-        tok = protocol.parse_token_message(raw)
-        if not tok:
-            raise ValueError("invalid token response")
+            if auth_profile != "static":
+                raise TimeoutError("PIN accepted, but the TV did not send a token. "
+                                   "Request a new code.")
+            # Static firmware authorizes the client identity after the PIN.
+            # Confirm it answers a fresh, read-only request before saving it.
+            sess.subscribe([sess.topics["applist_reply"]])
+            time.sleep(0.3)
+            since_apps = len(sess.messages)
+            sess.publish(sess.topics["ui"] + "actions/applist", "0")
+            apps = sess.wait_for("ui_service/data/applist", min(timeout, 8.0), since_apps)
+            if apps is None or protocol.parse_applist_message(apps) is None:
+                raise TimeoutError("PIN accepted, but the TV did not confirm access "
+                                   "to its app list. Request a new code.")
+        else:
+            tok = protocol.parse_token_message(raw)
+            if not tok:
+                raise ValueError("invalid token response")
     except Exception as e:
         if not isinstance(e, PairingCancelled):
             _register_pair_failure(reuse)
         raise
     finally:
-        sess.stop()
+        if sess is not None:
+            sess.stop()
     s = Session(host=host, device_uuid=device_uuid,
                 client_id=sess.client_id, username=sess.username,
-                pair_failures=0)
-    s.set_tokens(tok)
+                pair_failures=0, auth_profile=auth_profile)
+    if tok is not None:
+        s.set_tokens(tok)
     s.save()
     return s
 
@@ -536,8 +619,9 @@ def refresh(session: Session) -> Session:
     if (stored and stored.host == session.host
             and stored.device_uuid == session.device_uuid):
         session.__dict__.update(stored.__dict__)
-    sess = MqttSession(session.host, session.device_uuid,
-                       tv_timestamp(session.host), token=session.refresh_token)
+    if session.tokenless:
+        return session
+    sess = _saved_connection(session, session.refresh_token)
     try:
         rc = sess.start()
         if rc in (4, 5):
@@ -566,6 +650,8 @@ def refresh(session: Session) -> Session:
 def _ensure_ready(session: Session) -> Session:
     """Refresh if the access token is about to expire (calculated using
     the local clock, unaffected by TV clock skew)."""
+    if session.tokenless:
+        return session
     if session.expires_at and time.time() < session.expires_at - _REFRESH_MARGIN:
         return session
     log("auth", "access token nearing expiry: refreshing automatically")
@@ -584,9 +670,7 @@ def run_with_session(op, host: str | None = None):
             session.host = host
         session = _ensure_ready(session)
         for attempt in range(2):
-            sess = MqttSession(session.host, session.device_uuid,
-                               tv_timestamp(session.host),
-                               token=session.access_token)
+            sess = _saved_connection(session, None if session.tokenless else session.access_token)
             try:
                 try:
                     rc = sess.start()
@@ -596,6 +680,11 @@ def run_with_session(op, host: str | None = None):
                     rc = None
                 if rc == 0:
                     return op(sess, sess.topics), session
+                if session.tokenless:
+                    if rc in (4, 5):
+                        raise AuthError("needs_pairing", "the TV no longer recognizes "
+                                        "this pairing: request a new code")
+                    raise ConnectionError(f"TV unreachable (rc={rc})")
                 if attempt:
                     raise AuthError("rejected",
                                     f"connection refused by the TV (rc={rc})")

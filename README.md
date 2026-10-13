@@ -19,11 +19,20 @@ the PIN displayed on
 - Computer and TV on the same Wi-Fi/Ethernet network
 - A VIDAA TV (tested on firmware U09.60 / V0000.09.60A.Q0707)
 
+Toshiba VIDAA compatibility is experimental. Pairing now tries the documented
+static and alternative VIDAA authentication profiles if the TV rejects the
+default connection with `rc=4` or `rc=5`. The PIN is still required. Static
+firmware that issues no token must also answer an app-list request before Sidee
+saves its pairing. The selected profile and client identity are reused later.
+The Toshiba Z670 on V0000.09.60N.Q0615 has been reported to work with the official
+VIDAA remote app, but Sidee pairing and tile installation on that model still
+need testing on a real TV.
+
 ## Install and start
 
 ### Windows
 
-1. [Download Sidee for Windows](https://github.com/Empi9245/Sidee/releases/download/v0.1.3/sidee-windows.zip)
+1. [Download Sidee for Windows](https://github.com/Empi9245/Sidee/releases/download/v0.1.4/sidee-windows.zip)
    and choose **Extract all**. Open the extracted folder.
 2. Double-click **`start-windows.bat`**.
 3. Wait for your dashboard to open in the browser. Everything else happens there.

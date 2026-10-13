@@ -12,7 +12,7 @@ from core.pairing import PairingFlow
 
 
 class TvConnection:
-    def __init__(self, host, device_uuid, timestamp, token=None):
+    def __init__(self, host, device_uuid, timestamp, token=None, **kwargs):
         self.host = host
         self.client_id = "test-client"
         self.username = "test-user"

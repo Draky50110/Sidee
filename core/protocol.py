@@ -28,9 +28,11 @@ _C = [
 
 PATTERN = _deco(_C[0], _K).decode("ascii")
 VALUE_SUFFIX = _deco(_C[1], _K).decode("ascii")
+STANDARD_SUFFIX = _deco("9vdA`A3zfj1~(d29{?9n", _K).decode("ascii")
 XOR_MASK = int.from_bytes(_deco(_C[2], _K), "big")
 BRAND = "his"
 OPERATION = "vidaacommon_001"
+AUTH_PROFILES = ("modern", "static", "middle", "remotenow")
 
 
 def _md5u(s: str) -> str:
@@ -43,20 +45,26 @@ def new_device_uuid() -> str:
 
 
 def session_credentials(device_uuid: str, tv_timestamp: int,
-                        token: str | None = None) -> tuple[str, str, str]:
+                        token: str | None = None, *,
+                        auth_profile: str = "modern") -> tuple[str, str, str]:
     """(client_id, username, password) for the session.
 
     Without a token: password derived from the TV clock (initial handshake).
     With a token (access or refresh): same identity, token as password.
     """
+    if auth_profile not in AUTH_PROFILES:
+        raise ValueError("unsupported TV authentication profile")
     clean = device_uuid.replace("-", ":").lower()
     race = _md5u(f"{PATTERN}${clean}")[:6]
     client_id = f"{clean}${BRAND}${race}_{OPERATION}"
-    username = f"{BRAND}${tv_timestamp ^ XOR_MASK}"
+    if auth_profile == "static":
+        return client_id, "hisenseservice", token if token is not None else "multimqttservice"
+    username = f"{BRAND}${tv_timestamp if auth_profile == 'remotenow' else tv_timestamp ^ XOR_MASK}"
     if token is not None:
         return client_id, username, token
     digit = sum(int(d) for d in str(tv_timestamp)) % 10
-    value_md5 = _md5u(f"{BRAND}{digit}{VALUE_SUFFIX}")[:6]
+    salt = VALUE_SUFFIX if auth_profile == "modern" else STANDARD_SUFFIX
+    value_md5 = _md5u(f"{BRAND}{digit}{salt}")[:6]
     return client_id, username, _md5u(f"{tv_timestamp}${value_md5}")
 
 

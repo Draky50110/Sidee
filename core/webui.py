@@ -197,7 +197,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except client.AuthError as e:
                     self._json({"ok": False, "error": str(e),
                                 "needs_pairing": e.kind in
-                                ("none", "rejected", "expired", "corrupt")})
+                                ("none", "rejected", "expired", "corrupt", "needs_pairing")})
                     return
                 self._json(result)
             else:
@@ -205,7 +205,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except client.AuthError as e:
             self._json({"ok": False, "error": str(e),
                         "needs_pairing": e.kind in
-                        ("none", "rejected", "expired", "corrupt")})
+                        ("none", "rejected", "expired", "corrupt", "needs_pairing")})
         except Exception as e:
             self._json({"ok": False, "error": str(e)})
 

@@ -37,8 +37,10 @@ Download artifacts from a successful run on the
 [Actions page](https://github.com/Empi9245/Sidee/actions/workflows/build.yml).
 GitHub requires sign-in for artifact downloads. On a `v*` tag, the workflow also
 creates or updates a **draft** release with `sidee-windows.zip` and both Mac
-DMG/app ZIP pairs. A maintainer reviews that draft before publication; ordinary
-branch builds do not publish a release.
+DMG/app ZIP pairs. A `release: vX.Y.Z` commit on `main` publishes the verified
+packages as a Beta release after all builds succeed. Other branch builds do
+not publish a release. Version-specific notes come from `docs/releases/X.Y.Z.md`
+when that file exists.
 
 ## Build on macOS
 
