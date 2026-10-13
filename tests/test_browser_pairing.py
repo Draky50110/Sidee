@@ -66,7 +66,15 @@ class TestBrowserPairing(unittest.TestCase):
         stack.enter_context(patch.object(client, "_cert_dir", return_value=temp.name))
         stack.enter_context(patch.object(client.Session, "path", return_value=self.path))
         stack.enter_context(patch.object(client, "tv_timestamp", return_value=123))
+        stack.enter_context(patch.object(client, "fetch_descriptor", return_value=None))
         stack.enter_context(patch.object(client.time, "sleep"))
+        # These browser tests exercise the modern handshake. Static-first
+        # selection and the legacy handshake have their own compatibility
+        # tests, while this fixture selects modern explicitly.
+        connect_pairing = client._pairing_connection
+        stack.enter_context(patch.object(
+            client, "_pairing_connection", side_effect=lambda host, device, timestamp, preferred:
+            connect_pairing(host, device, timestamp, preferred="modern")))
         self.connections = []
 
         def connect(*args, **kwargs):

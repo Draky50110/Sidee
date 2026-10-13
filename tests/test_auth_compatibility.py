@@ -22,6 +22,7 @@ class TestAuthenticationCompatibility(unittest.TestCase):
         self.addCleanup(stack.close)
         stack.enter_context(patch.object(client.Session, "path", return_value=self.path))
         stack.enter_context(patch.object(client, "tv_timestamp", return_value=123))
+        stack.enter_context(patch.object(client, "fetch_descriptor", return_value=None))
         stack.enter_context(patch.object(client.time, "sleep"))
         stack.enter_context(patch.object(client, "log"))
         self.connections = []
@@ -31,6 +32,8 @@ class TestAuthenticationCompatibility(unittest.TestCase):
         self.apps_reply = "[]"
         self.failure = 5
         self.legacy_pin = True
+        self.throttle_on_rejection = False
+        self.broker_throttled = False
 
         def connect(host, device_uuid, timestamp, token=None, **options):
             profile = options.get("auth_profile", "modern")
@@ -49,7 +52,12 @@ class TestAuthenticationCompatibility(unittest.TestCase):
             def start():
                 if isinstance(self.failure, Exception):
                     raise self.failure
-                return 0 if profile == self.accepted_profile else self.failure
+                if self.broker_throttled:
+                    return 5
+                rc = 0 if profile == self.accepted_profile else self.failure
+                if rc in (4, 5) and self.throttle_on_rejection:
+                    self.broker_throttled = True
+                return rc
 
             original_publish = connection.publish
 
@@ -78,9 +86,8 @@ class TestAuthenticationCompatibility(unittest.TestCase):
 
     def test_static_pairing_survives_reload_and_runs_without_token_refresh(self):
         session = self.pair()
-        self.assertEqual([c.profile for c in self.connections], ["modern", "static"])
+        self.assertEqual([c.profile for c in self.connections], ["static"])
         self.assertTrue(all(c.stopped for c in self.connections))
-        self.assertEqual(self.connections[0].published, [])
         self.assertTrue(session.tokenless)
         self.assertEqual(session.expires_at, 0)
         self.assertTrue(client.Session.load().tokenless)
@@ -174,12 +181,58 @@ class TestAuthenticationCompatibility(unittest.TestCase):
     def test_all_profiles_rejected_never_request_a_pin_or_save_a_session(self):
         self.accepted_profile = None
         provider = Mock()
-        with self.assertRaisesRegex(ConnectionError, "modern: rc=5.*static: rc=5"):
+        with self.assertRaisesRegex(ConnectionError, "static: rc=5.*modern: rc=5"):
             client.pair("192.168.1.10", provider)
         provider.assert_not_called()
         self.assertEqual(len(self.connections), 4)
         self.assertTrue(all(c.stopped and not c.published for c in self.connections))
         self.assertFalse(os.path.exists(self.path))
+
+    def test_failed_pairing_includes_public_brand_and_protocol_details(self):
+        self.accepted_profile = None
+        descriptor = client.TvInfo("192.168.1.10", raw_description='''
+            <root xmlns="urn:schemas-upnp-org:device-1-0"><device>
+            <manufacturer>TOSHIBA</manufacturer><modelName>Z670</modelName>
+            <friendlyName>Private nickname</friendlyName><UDN>private-uuid</UDN>
+            <modelDescription>brand=tos
+transport_protocol=3310
+macWifi=private-mac
+serialNumber=private-serial</modelDescription></device></root>''')
+        with patch.object(client, "fetch_descriptor", return_value=descriptor):
+            with self.assertRaises(ConnectionError) as error:
+                self.pair()
+        message = str(error.exception)
+        for field in ("manufacturer=TOSHIBA", "modelName=Z670", "brand=tos",
+                      "transport_protocol=3310"):
+            self.assertIn(field, message)
+        self.assertNotIn("private", message.lower())
+        self.assertNotIn("date/time", message)
+
+    def test_new_pairing_tries_static_before_any_dynamic_rejection(self):
+        # Model a broker that refuses every connection after a bad dynamic
+        # login. A fresh static connection must reach the PIN without that
+        # earlier rejection.
+        self.throttle_on_rejection = True
+        with self.assertRaises(ConnectionError):
+            client._pairing_connection("192.168.1.10", "aa:bb:cc:dd:ee:ff", 123,
+                                       preferred="modern")
+        self.assertTrue(self.broker_throttled)
+        self.broker_throttled = False
+        self.connections.clear()
+        session = self.pair()
+        self.assertEqual([c.profile for c in self.connections], ["static"])
+        self.assertTrue(session.tokenless)
+
+    def test_known_modern_pairing_keeps_its_profile_and_topic_identity(self):
+        self.accepted_profile = "modern"
+        self.token_reply = '{"accesstoken": "A", "refreshtoken": "R"}'
+        first = self.pair()
+        self.assertEqual([c.profile for c in self.connections], ["static", "modern"])
+        self.connections.clear()
+        second = self.pair()
+        self.assertEqual([c.profile for c in self.connections], ["modern"])
+        self.assertEqual(second.client_id, first.client_id)
+        self.assertEqual(second.device_uuid, first.device_uuid)
 
     def test_network_tls_and_broker_errors_do_not_try_other_credentials(self):
         self.accepted_profile = None
@@ -245,6 +298,43 @@ class TestAuthenticationCompatibility(unittest.TestCase):
                 with open(self.path, "w", encoding="utf-8") as f:
                     json.dump(data, f)
                 self.assertIsNone(client.Session().load_or_none())
+
+
+class TestMqttConnectionIdentity(unittest.TestCase):
+    def setUp(self):
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(patch.object(client, "_load_client_pem_key",
+                                         return_value=(b"cert", b"key")))
+        stack.enter_context(patch.object(client.ssl, "SSLContext"))
+        self.mqtt = stack.enter_context(patch.object(client.mqtt, "Client"))
+        self.uuid = "16:1e:d5:d4:61:0d"
+
+    def test_static_broker_ids_are_short_unique_and_preserve_paired_topics(self):
+        paired_id = protocol.session_credentials(self.uuid, 123)[0]
+        first = client.MqttSession("192.168.1.10", self.uuid, 123,
+                                   auth_profile="static", client_id=paired_id)
+        second = client.MqttSession("192.168.1.10", self.uuid, 123, token="access",
+                                    auth_profile="static", client_id=paired_id)
+        broker_ids = [call.kwargs["client_id"] for call in self.mqtt.call_args_list]
+        self.assertNotEqual(broker_ids[0], broker_ids[1])
+        for broker_id in broker_ids:
+            self.assertLessEqual(len(broker_id), 23)
+            self.assertNotIn("$", broker_id)
+            self.assertNotEqual(broker_id, paired_id)
+        self.assertEqual(first.client_id, paired_id)
+        self.assertEqual(first.topics, second.topics)
+        self.assertEqual(second.password, "access")
+
+    def test_dynamic_broker_identity_matches_topics_and_disables_background_retries(self):
+        for profile in protocol.AUTH_PROFILES:
+            with self.subTest(profile=profile):
+                session = client.MqttSession("192.168.1.10", self.uuid, 123,
+                                             auth_profile=profile)
+                options = self.mqtt.call_args.kwargs
+                self.assertFalse(options["reconnect_on_failure"])
+                if profile != "static":
+                    self.assertEqual(options["client_id"], session.client_id)
 
 
 if __name__ == "__main__":

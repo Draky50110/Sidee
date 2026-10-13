@@ -1,9 +1,12 @@
 """Reject incomplete or incorrectly targeted macOS distribution bundles."""
 from pathlib import Path
+import os
 import plistlib
+import runpy
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+from types import SimpleNamespace
 
 from tools import build_macos_release as packaging
 
@@ -73,9 +76,26 @@ class TestNativeMacBuild(unittest.TestCase):
 
     def test_versions_follow_existing_release_tag_format(self):
         self.assertEqual(packaging.validate_version("v0.1.1"), "0.1.1")
-        for value in ("v1", "v1.2.3-preview", "1.2.3/../other", "1.2.3\n"):
+        self.assertEqual(packaging.validate_version("v0.1.4.1"), "0.1.4.1")
+        for value in ("v1", "v1.2.3-preview", "1.2.3/../other", "1.2.3\n", "1.2.3.4.5"):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 packaging.validate_version(value)
+
+    def test_hotfix_bundle_keeps_apple_version_fields_and_full_release(self):
+        bundle = Mock()
+        analysis = SimpleNamespace(pure=[], scripts=[], binaries=[], datas=[])
+        spec = packaging.ROOT / "packaging" / "macos.spec"
+        with patch.dict(os.environ, {"SIDEE_BUILD_VERSION": "0.1.4.1",
+                                     "SIDEE_BUILD_NUMBER": "47"}):
+            runpy.run_path(str(spec), init_globals={
+                "SPECPATH": str(spec.parent),
+                "Analysis": Mock(return_value=analysis), "PYZ": Mock(),
+                "EXE": Mock(), "COLLECT": Mock(), "BUNDLE": bundle,
+            })
+        metadata = bundle.call_args.kwargs["info_plist"]
+        self.assertEqual(metadata["CFBundleShortVersionString"], "0.1.4")
+        self.assertEqual(metadata["CFBundleVersion"], "47")
+        self.assertEqual(metadata["SideeReleaseVersion"], "0.1.4.1")
 
 
 if __name__ == "__main__":

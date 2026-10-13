@@ -13,6 +13,7 @@ import threading
 import tempfile
 import time
 import urllib.parse
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import wraps
@@ -375,12 +376,18 @@ class MqttSession:
         self.client_id = client_id or self.client_id
         self.username = username or self.username
         self.topics = protocol.tv_topics(self.client_id)
+        # Static firmware separates the MQTT connection from the identity in
+        # remoteapp topics. Use a short, unique broker ID; keep the paired topic
+        # identity stable, including sessions created by 0.1.4.
+        self.mqtt_client_id = ("sidee_" + protocol.new_device_uuid().replace(":", "")
+                               if auth_profile == "static" else self.client_id)
         self.host = host
         self.messages: list[tuple[str, str]] = []
         self.connected = threading.Event()
         self.connect_rc: int | None = None
-        self.client = mqtt.Client(client_id=self.client_id,
-                                  protocol=mqtt.MQTTv311)
+        self.client = mqtt.Client(client_id=self.mqtt_client_id,
+                                  protocol=mqtt.MQTTv311,
+                                  reconnect_on_failure=False)
         cert, key = _load_client_pem_key()
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
@@ -462,8 +469,33 @@ def _stored_uuid() -> str | None:
     return s.device_uuid if s and s.device_uuid else None
 
 
+def _compatibility_details(host: str) -> str:
+    """Read public TV metadata for an auth refusal, without device identifiers."""
+    info = fetch_descriptor(host)
+    if not info:
+        return "TV details unavailable"
+    try:
+        root = ET.fromstring(info.raw_description)
+    except ET.ParseError:
+        return "TV details unavailable"
+    fields = {}
+    for node in root.iter():
+        tag = node.tag.rsplit("}", 1)[-1]
+        if tag in ("manufacturer", "modelName") and node.text:
+            fields[tag] = node.text
+        elif tag == "modelDescription" and node.text:
+            for line in node.text.splitlines():
+                key, sep, value = line.partition("=")
+                if sep and key.strip() in ("brand", "transport_protocol"):
+                    fields[key.strip()] = value
+    # Never include friendly names, IPs, MACs, serial numbers, UDNs or tokens.
+    details = [f"{key}={' '.join(value.split())[:48]}"
+               for key, value in fields.items()]
+    return ", ".join(details) if details else "TV details unavailable"
+
+
 def _pairing_connection(host: str, device_uuid: str, timestamp: int,
-                        preferred: str = "modern") -> tuple[MqttSession, str]:
+                        preferred: str = "static") -> tuple[MqttSession, str]:
     """Try each documented profile once, only after an explicit auth refusal.
 
     Reference implementations: stevene1919/hisense_vidaa/crypto.py and
@@ -487,10 +519,13 @@ def _pairing_connection(host: str, device_uuid: str, timestamp: int,
         finally:
             if not accepted:
                 sess.stop()
+    details = _compatibility_details(host)
+    log("auth", f"TV compatibility: {details}")
     raise ConnectionError(
         "connection refused by the TV (" + "; ".join(attempted) + "). "
-        "The TV rejected all supported connection modes. Check its date/time "
-        "and mobile app settings, then request a new code.")
+        "The TV refused authentication before a PIN could be requested. "
+        "If the official VIDAA app can control it, this firmware needs "
+        "further compatibility checks. " + details)
 
 
 def _saved_connection(session: Session, token: str | None) -> MqttSession:
@@ -514,7 +549,10 @@ def pair(host: str, pin_provider, timeout: float = 60.0) -> Session:
     sess = None
     tok = None
     try:
-        preferred = previous.auth_profile if reuse else "modern"
+        # A rejected dynamic attempt can throttle static authentication on
+        # Toshiba firmware. Fresh pairings try static first; a known working
+        # profile still takes priority when pairing the same TV again.
+        preferred = previous.auth_profile if reuse else "static"
         sess, auth_profile = _pairing_connection(host, device_uuid,
                                                 tv_timestamp(host), preferred)
         since = len(sess.messages)

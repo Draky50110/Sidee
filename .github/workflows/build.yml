@@ -103,11 +103,12 @@ jobs:
         env:
           SIDEE_REF_NAME: ${{ github.ref_name }}
           SIDEE_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          SIDEE_BUILD_NUMBER: ${{ github.run_number }}
         run: |
-          version=0.1.4
-          if [[ "$SIDEE_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          version=0.1.4.1
+          if [[ "$SIDEE_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
             version="${SIDEE_REF_NAME#v}"
-          elif [[ "$SIDEE_COMMIT_MESSAGE" =~ ^release:\ v([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+          elif [[ "$SIDEE_COMMIT_MESSAGE" =~ ^release:\ v([0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?)$ ]]; then
             version="${BASH_REMATCH[1]}"
           fi
           python tools/build_macos_release.py --architecture '${{ matrix.architecture }}' --version "$version"
@@ -157,8 +158,8 @@ jobs:
             SIDEE_TAG="${first_line#release: }"
             publish=true
           fi
-          if ! [[ "$SIDEE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo 'Release versions must use vX.Y.Z.' >&2
+          if ! [[ "$SIDEE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo 'Release versions must use vX.Y.Z or vX.Y.Z.N.' >&2
             exit 1
           fi
           notes_options=(--generate-notes)

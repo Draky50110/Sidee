@@ -4,7 +4,13 @@ from pathlib import Path
 
 root = Path(SPECPATH).parent
 architecture = os.environ.get("SIDEE_TARGET_ARCH")
-version = os.environ.get("SIDEE_BUILD_VERSION", "0.1.4")
+version = os.environ.get("SIDEE_BUILD_VERSION", "0.1.4.1")
+# Apple uses three components for the marketing version and a separate build
+# number. Keep the full Sidee release in its own key for four-part hotfixes.
+version_parts = version.split(".")
+short_version = ".".join(version_parts[:3])
+build_version = os.environ.get("SIDEE_BUILD_NUMBER") or (
+    version if len(version_parts) == 3 else str(max(1, int(version_parts[3]))))
 identity = os.environ.get("SIDEE_CODESIGN_IDENTITY") or None
 entitlements = os.environ.get("SIDEE_ENTITLEMENTS_FILE") or None
 
@@ -63,8 +69,9 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "Sidee",
         "CFBundleDisplayName": "Sidee",
-        "CFBundleShortVersionString": version,
-        "CFBundleVersion": version,
+        "CFBundleShortVersionString": short_version,
+        "CFBundleVersion": build_version,
+        "SideeReleaseVersion": version,
         "LSMinimumSystemVersion": "15.0",
         "NSHighResolutionCapable": True,
         "NSLocalNetworkUsageDescription": (
