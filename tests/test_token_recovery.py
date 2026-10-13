@@ -57,6 +57,7 @@ class TestTokenRecovery(unittest.TestCase):
         stack = ExitStack()
         stack.enter_context(patch.object(client, "MqttSession", side_effect=connections))
         stack.enter_context(patch.object(client, "tv_timestamp", return_value=123))
+        stack.enter_context(patch.object(client, "fetch_descriptor", return_value=None))
         stack.enter_context(patch.object(client.time, "sleep"))
         stack.enter_context(patch.object(client, "log"))
         return stack
