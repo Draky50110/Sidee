@@ -25,4 +25,5 @@ def build(destination=None):
 
 
 if __name__ == "__main__":
-    print(build())
+    import sys
+    print(build(sys.argv[1] if len(sys.argv) > 1 else None))

@@ -32,6 +32,36 @@ confirms that this model accepts Sidee's app-install action.
 - Accept VIDAA identifiers in a Toshiba UPnP descriptor without requiring the
   manufacturer to be Hisense. Toshiba branding alone does not identify VIDAA.
 
+## Brand fix (0.1.4.2, 13 October 2026)
+
+Root-cause candidate identified and implemented for the `rc=5` refusal on
+the reported Z670: Sidee hardcoded `brand="his"` in the credential
+derivation, while the Toshiba descriptor itself declares `brand=tos`. The
+official app's native library takes the brand as an **input** to the same
+algorithm (`getConnectUser(uuid, brand, operation, time, flag)`), and the
+reference implementations confirm the shape:
+
+- client_id: `<uuid>$<brand>$<race>_vidaacommon_001`
+- username: `<brand>$<timestamp ^ XOR>` (or `<brand>$<timestamp>` for
+  RemoteNOW)
+- password: `md5("<timestamp>$<md5("<brand><digit><suffix>")[:6]>")` —
+  the value suffixes are firmware constants (the 3-slot table in the
+  native library) and do **not** change with the brand
+
+Verified offline (10 new tests, full suite 176 green): per-brand
+credential structure and determinism, descriptor `brand=` parsing with
+fallback, session roundtrip, legacy-session compatibility (missing
+`brand` loads as `his`), and brand propagation into every pairing
+connection.
+
+**Needs live confirmation on the reported Toshiba:** that the broker
+accepts dynamic credentials derived from `brand=tos` (static profile is
+structurally unchanged; its topic identity stays stable while the broker
+connection id is unique per connection, as in pyvidaa). The log now
+prints `TV declares brand=tos: using it in the credentials` when the
+descriptor carries a non-Hisense brand, so a failure on the real TV is
+immediately distinguishable from a discovery problem.
+
 ## Trial on the reported TV
 
 Extract the experimental Windows ZIP in a new folder, open `start-windows.bat`,
