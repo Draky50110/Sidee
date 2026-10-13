@@ -22,7 +22,9 @@ the PIN displayed on
 Toshiba VIDAA compatibility is experimental. Fresh pairing tries static
 authentication first, using a separate short MQTT connection identifier while
 keeping the topic identity stable. On an explicit refusal (`rc=4` or `rc=5`),
-Sidee tries the documented dynamic VIDAA profiles once each. The PIN is still required. Static
+Sidee tries the documented dynamic VIDAA profiles once each, using the brand
+declared by the TV (such as `tos` for Toshiba) when generating credentials.
+The selected brand is also saved for reconnection. The PIN is still required. Static
 firmware that issues no token must also answer an app-list request before Sidee
 saves its pairing. The selected profile and client identity are reused later.
 The Toshiba Z670 on V0000.09.60N.Q0615 has been reported to work with the official
@@ -33,7 +35,7 @@ need testing on a real TV.
 
 ### Windows
 
-1. [Download Sidee for Windows](https://github.com/Empi9245/Sidee/releases/download/v0.1.4.1/sidee-windows.zip)
+1. [Download Sidee for Windows](https://github.com/Empi9245/Sidee/releases/download/v0.1.4.2/sidee-windows.zip)
    and choose **Extract all**. Open the extracted folder.
 2. Double-click **`start-windows.bat`**.
 3. Wait for your dashboard to open in the browser. Everything else happens there.

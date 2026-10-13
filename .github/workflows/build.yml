@@ -105,7 +105,7 @@ jobs:
           SIDEE_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
           SIDEE_BUILD_NUMBER: ${{ github.run_number }}
         run: |
-          version=0.1.4.1
+          version=0.1.4.2
           if [[ "$SIDEE_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
             version="${SIDEE_REF_NAME#v}"
           elif [[ "$SIDEE_COMMIT_MESSAGE" =~ ^release:\ v([0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?)$ ]]; then

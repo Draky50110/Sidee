@@ -13,8 +13,8 @@ confirms that this model accepts Sidee's app-install action.
 
 ## Implemented behavior
 
-- Keep modern authentication first for existing Hisense compatibility. After
-  an explicit authentication refusal (4 or 5), try static, middle, and RemoteNOW
+- Try static authentication first on fresh pairing. After
+  an explicit authentication refusal (4 or 5), try modern, middle, and RemoteNOW
   profiles once each. Close each rejected connection before opening another.
   Stop on TLS, network, timeout, or other broker errors.
 - Use the saved profile first when pairing the same TV again. Reuse its client
@@ -55,8 +55,8 @@ fallback, session roundtrip, legacy-session compatibility (missing
 connection.
 
 **Needs live confirmation on the reported Toshiba:** that the broker
-accepts dynamic credentials derived from `brand=tos` (static profile is
-structurally unchanged; its topic identity stays stable while the broker
+accepts dynamic credentials derived from `brand=tos` (static username and
+password stay unchanged; the saved topic identity stays stable while the broker
 connection id is unique per connection, as in pyvidaa). The log now
 prints `TV declares brand=tos: using it in the credentials` when the
 descriptor carries a non-Hisense brand, so a failure on the real TV is

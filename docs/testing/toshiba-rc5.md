@@ -1,11 +1,12 @@
 # Toshiba connection test build
 
-This describes the changes released in Sidee 0.1.4.1. Toshiba Z670 compatibility
+This describes the changes released in Sidee 0.1.4.2. Toshiba Z670 compatibility
 has not been confirmed on hardware.
 
 It tries static authentication first on a fresh pairing, uses a separate short
 MQTT connection identifier for static mode, and disables automatic connection
-retries. Existing paired topic identities and working profiles are preserved.
+retries. Credentials use the brand declared by the TV, and the brand is saved
+for reconnection. Existing paired topic identities and working profiles are preserved.
 Every successful pairing still requires the TV PIN. A refusal now includes
 the TV's advertised manufacturer, model, brand and transport protocol when
 available, without copying MAC addresses, serial numbers or saved credentials.

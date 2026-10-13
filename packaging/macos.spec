@@ -4,7 +4,7 @@ from pathlib import Path
 
 root = Path(SPECPATH).parent
 architecture = os.environ.get("SIDEE_TARGET_ARCH")
-version = os.environ.get("SIDEE_BUILD_VERSION", "0.1.4.1")
+version = os.environ.get("SIDEE_BUILD_VERSION", "0.1.4.2")
 # Apple uses three components for the marketing version and a separate build
 # number. Keep the full Sidee release in its own key for four-part hotfixes.
 version_parts = version.split(".")

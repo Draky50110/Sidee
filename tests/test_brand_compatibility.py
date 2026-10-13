@@ -110,9 +110,11 @@ class TestDescriptorBrand(unittest.TestCase):
                 self.assertEqual(loaded.brand, "tos")
                 # a legacy session without brand stays Hisense-compatible
                 import json
-                data = json.load(open(path, encoding="utf-8"))
+                with open(path, encoding="utf-8") as stream:
+                    data = json.load(stream)
                 del data["brand"]
-                json.dump(data, open(path, "w", encoding="utf-8"))
+                with open(path, "w", encoding="utf-8") as stream:
+                    json.dump(data, stream)
                 legacy = client.Session.load()
                 self.assertEqual(legacy.brand, "his")
 
@@ -132,7 +134,10 @@ class TestPairingUsesDescriptorBrand(unittest.TestCase):
             def stop(self):
                 pass
 
+        descriptor = client.TvInfo("192.168.18.138", brand="tos",
+                                   raw_description=TOSHIBA_DESCRIPTOR)
         with patch.object(client, "MqttSession", FakeSess), \
+                patch.object(client, "fetch_descriptor", return_value=descriptor), \
                 patch.object(client, "log"):
             with self.assertRaises(ConnectionError):
                 client._pairing_connection("192.168.18.138", UUID, TS,
