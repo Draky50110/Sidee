@@ -46,25 +46,31 @@ def new_device_uuid() -> str:
 
 def session_credentials(device_uuid: str, tv_timestamp: int,
                         token: str | None = None, *,
-                        auth_profile: str = "modern") -> tuple[str, str, str]:
+                        auth_profile: str = "modern",
+                        brand: str = "his") -> tuple[str, str, str]:
     """(client_id, username, password) for the session.
 
     Without a token: password derived from the TV clock (initial handshake).
     With a token (access or refresh): same identity, token as password.
+    ``brand`` is the identifier the TV itself declares in its UPnP
+    descriptor (``brand=his`` on Hisense, ``brand=tos`` on Toshiba-licensed
+    firmware); the native library of the official app takes it as an input
+    (getConnectUser(uuid, brand, operation, time, flag)), so it must match
+    the TV. The value suffixes are firmware constants and stay unchanged.
     """
     if auth_profile not in AUTH_PROFILES:
         raise ValueError("unsupported TV authentication profile")
     clean = device_uuid.replace("-", ":").lower()
     race = _md5u(f"{PATTERN}${clean}")[:6]
-    client_id = f"{clean}${BRAND}${race}_{OPERATION}"
+    client_id = f"{clean}${brand}${race}_{OPERATION}"
     if auth_profile == "static":
         return client_id, "hisenseservice", token if token is not None else "multimqttservice"
-    username = f"{BRAND}${tv_timestamp if auth_profile == 'remotenow' else tv_timestamp ^ XOR_MASK}"
+    username = f"{brand}${tv_timestamp if auth_profile == 'remotenow' else tv_timestamp ^ XOR_MASK}"
     if token is not None:
         return client_id, username, token
     digit = sum(int(d) for d in str(tv_timestamp)) % 10
     salt = VALUE_SUFFIX if auth_profile == "modern" else STANDARD_SUFFIX
-    value_md5 = _md5u(f"{BRAND}{digit}{salt}")[:6]
+    value_md5 = _md5u(f"{brand}{digit}{salt}")[:6]
     return client_id, username, _md5u(f"{tv_timestamp}${value_md5}")
 
 

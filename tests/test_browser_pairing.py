@@ -73,7 +73,7 @@ class TestBrowserPairing(unittest.TestCase):
         # tests, while this fixture selects modern explicitly.
         connect_pairing = client._pairing_connection
         stack.enter_context(patch.object(
-            client, "_pairing_connection", side_effect=lambda host, device, timestamp, preferred:
+            client, "_pairing_connection", side_effect=lambda host, device, timestamp, preferred, **kwargs:
             connect_pairing(host, device, timestamp, preferred="modern")))
         self.connections = []
 

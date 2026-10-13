@@ -131,6 +131,7 @@ class Session:
     expires_at: float = 0.0     # LOCAL access expiry epoch (avoids clock skew)
     pair_failures: int = 0
     auth_profile: str = "modern"
+    brand: str = "his"          # brand declared by the TV in its descriptor
 
     @property
     def tokenless(self) -> bool:
@@ -233,7 +234,20 @@ class TvInfo:
     friendly_name: str = ""
     model: str = ""
     is_vidaa: bool = False
+    brand: str = "his"
     raw_description: str = field(default="", repr=False)
+
+
+def _descriptor_brand(description: str) -> str:
+    """Brand identifier the TV declares in modelDescription (brand=his on
+    Hisense, brand=tos on Toshiba-licensed firmware). Falls back to 'his'."""
+    for line in description.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() == "brand":
+            value = value.strip().lower()
+            if re.fullmatch(r"[a-z0-9]{1,8}", value):
+                return value
+    return "his"
 
 
 def _broadcasts_from_ipconfig(output: str) -> list[str]:
@@ -331,6 +345,7 @@ def fetch_descriptor(host: str, location: str | None = None) -> TvInfo | None:
                         or "hisense" in xml.lower() or "vidaa" in xml.lower())
             return TvInfo(host=host, friendly_name=(name.group(1) if name else host),
                           model=desc.strip()[:120], is_vidaa=is_vidaa,
+                          brand=_descriptor_brand(desc),
                           raw_description=xml)
         except (OSError, ValueError, http.client.HTTPException):
             continue
@@ -369,9 +384,11 @@ class MqttSession:
 
     def __init__(self, host: str, device_uuid: str, tv_ts: int,
                  token: str | None = None, *, auth_profile: str = "modern",
+                 brand: str = "his",
                  client_id: str | None = None, username: str | None = None):
+        self.brand = brand or "his"
         self.client_id, self.username, self.password = protocol.session_credentials(
-            device_uuid, tv_ts, token, auth_profile=auth_profile)
+            device_uuid, tv_ts, token, auth_profile=auth_profile, brand=self.brand)
         # Token authentication belongs to the identity accepted during pairing.
         self.client_id = client_id or self.client_id
         self.username = username or self.username
@@ -495,17 +512,21 @@ def _compatibility_details(host: str) -> str:
 
 
 def _pairing_connection(host: str, device_uuid: str, timestamp: int,
-                        preferred: str = "static") -> tuple[MqttSession, str]:
+                        preferred: str = "static",
+                        brand: str = "his") -> tuple[MqttSession, str]:
     """Try each documented profile once, only after an explicit auth refusal.
 
-    Reference implementations: stevene1919/hisense_vidaa/crypto.py and
-    Lucent-/vidaa-control/vidaa/client.py (Toshiba static fallback).
+    Reference implementations: stevene1919/hisense_vidaa/crypto.py,
+    Lucent-/vidaa-control/vidaa/credentials.py (brand passed per-TV) and
+    warrenrees/pyvidaa (static identity). The brand is the one the TV itself
+    declares in its descriptor; the value suffixes are firmware constants.
     Network and TLS failures cannot be fixed by changing credentials.
     """
     profiles = list(dict.fromkeys((preferred,) + protocol.AUTH_PROFILES))
     attempted = []
     for profile in profiles:
-        sess = MqttSession(host, device_uuid, timestamp, auth_profile=profile)
+        sess = MqttSession(host, device_uuid, timestamp, auth_profile=profile,
+                           brand=brand)
         accepted = False
         try:
             rc = sess.start()
@@ -532,6 +553,7 @@ def _saved_connection(session: Session, token: str | None) -> MqttSession:
     return MqttSession(session.host, session.device_uuid,
                        0 if session.tokenless else tv_timestamp(session.host), token=token,
                        auth_profile=session.auth_profile,
+                       brand=getattr(session, "brand", "his") or "his",
                        client_id=session.client_id or None,
                        username=session.username or None)
 
@@ -546,6 +568,13 @@ def pair(host: str, pin_provider, timeout: float = 60.0) -> Session:
     reuse = (stored and stored != "NEW"
              and not _pair_failures_exceeded())
     device_uuid = stored if reuse else protocol.new_device_uuid()
+    # The brand must match what the TV itself declares: the official app
+    # takes it as an input to the same credential algorithm (brand=his on
+    # Hisense, brand=tos on Toshiba-licensed firmware).
+    info = fetch_descriptor(host)
+    brand = (getattr(info, "brand", "his") or "his") if info else "his"
+    if not reuse and brand != "his":
+        log("auth", f"TV declares brand={brand}: using it in the credentials")
     sess = None
     tok = None
     try:
@@ -554,7 +583,8 @@ def pair(host: str, pin_provider, timeout: float = 60.0) -> Session:
         # profile still takes priority when pairing the same TV again.
         preferred = previous.auth_profile if reuse else "static"
         sess, auth_profile = _pairing_connection(host, device_uuid,
-                                                tv_timestamp(host), preferred)
+                                                tv_timestamp(host), preferred,
+                                                brand=brand)
         since = len(sess.messages)
         sess.subscribe([
             sess.topics["mobile"] + "ui_service/data/authentication",
@@ -628,7 +658,8 @@ def pair(host: str, pin_provider, timeout: float = 60.0) -> Session:
             sess.stop()
     s = Session(host=host, device_uuid=device_uuid,
                 client_id=sess.client_id, username=sess.username,
-                pair_failures=0, auth_profile=auth_profile)
+                pair_failures=0, auth_profile=auth_profile,
+                brand=brand)
     if tok is not None:
         s.set_tokens(tok)
     s.save()
