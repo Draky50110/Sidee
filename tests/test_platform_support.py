@@ -127,6 +127,25 @@ class TestPlatformPaths(unittest.TestCase):
 
 
 class TestMacDiscovery(unittest.TestCase):
+    def test_macos_interface_addresses_match_the_broadcast_interfaces(self):
+        response = Mock(returncode=0, stdout=MAC_INTERFACES)
+        with patch.object(platform.sys, "platform", "darwin"), \
+                patch.object(platform.subprocess, "run", return_value=response):
+            self.assertEqual(platform.local_ipv4_interfaces(),
+                             [("10.23.7.5", "10.23.7.255"),
+                              ("192.168.88.5", "192.168.88.255")])
+
+    def test_windows_retains_addresses_from_multiple_subnets(self):
+        response = Mock(returncode=0, stdout=(
+            "IPv4: 172.19.208.1\nMask: 255.255.240.0\n"
+            "IPv4: 192.168.1.5\nMask: 255.255.255.0\n"))
+        with patch.object(platform.sys, "platform", "win32"), \
+                patch.object(platform.os, "name", "nt"), \
+                patch.object(platform.subprocess, "run", return_value=response):
+            self.assertEqual(platform.local_ipv4_interfaces(),
+                             [("172.19.208.1", "172.19.223.255"),
+                              ("192.168.1.5", "192.168.1.255")])
+
     def test_wifi_ethernet_and_hexadecimal_masks_are_used(self):
         self.assertEqual(platform.broadcasts_from_ifconfig(MAC_INTERFACES),
                          ["10.23.7.255", "192.168.88.255"])
@@ -190,6 +209,7 @@ class TestSocketLifecycle(unittest.TestCase):
         notify = Mock()
         notify.recvfrom.side_effect = BlockingIOError()
         with patch.object(client.socket, "socket", side_effect=[connection, notify]), \
+                patch.object(platform, "local_ipv4_interfaces", return_value=[]), \
                 patch.object(client, "_local_broadcasts", return_value=[]):
             with self.assertRaises(OSError):
                 client.discover(timeout=1)

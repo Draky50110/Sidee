@@ -255,8 +255,10 @@ def _broadcasts_from_ipconfig(output: str) -> list[str]:
     return platform_support.broadcasts_from_ipconfig(output)
 
 
-def _local_broadcasts() -> list[str]:
-    return platform_support.local_broadcasts()
+def _local_broadcasts(interfaces: list[tuple[str, str]] | None = None) -> list[str]:
+    if interfaces is None:
+        return platform_support.local_broadcasts()
+    return sorted({target for _, target in interfaces})
 
 
 def _msearch(sock: socket.socket, target: str) -> None:
@@ -275,20 +277,31 @@ def _msearch(sock: socket.socket, target: str) -> None:
         pass
 
 
-def _notify_listener() -> socket.socket | None:
-    """Non-blocking socket joined to the SSDP multicast group, or None."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+def _notify_listener(interfaces: list[str]) -> socket.socket | None:
+    """Listen for SSDP on each LAN interface; tolerate individual failures."""
+    sock = None
     try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         if hasattr(socket, "SO_REUSEPORT"):
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.bind(("", SSDP_PORT))
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                        socket.inet_aton(SSDP_MULTICAST) + socket.inet_aton("0.0.0.0"))
+        joined = False
+        for host in dict.fromkeys(interfaces or ["0.0.0.0"]):
+            try:
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                                socket.inet_aton(SSDP_MULTICAST) + socket.inet_aton(host))
+                joined = True
+            except OSError:
+                continue
+        if not joined:
+            sock.close()
+            return None
         sock.setblocking(False)
         return sock
     except OSError:
-        sock.close()
+        if sock is not None:
+            sock.close()
         return None
 
 
@@ -300,7 +313,9 @@ def _ssdp_location(data: bytes) -> str | None:
         # Only the device type the M-SEARCH asks for, so routers, printers
         # and other UPnP devices don't trigger extra descriptor fetches.
         nt = re.search(r"^NT:\s*(\S+)", text, re.I | re.M)
-        if "SSDP:ALIVE" not in head or not nt or nt.group(1) != SSDP_MEDIA_RENDERER:
+        nts = re.search(r"^NTS:\s*(\S+)", text, re.I | re.M)
+        if (not nts or nts.group(1).lower() != "ssdp:alive"
+                or not nt or nt.group(1) != SSDP_MEDIA_RENDERER):
             return None
     elif not head.startswith("HTTP/1.1 200"):
         return None
@@ -335,10 +350,11 @@ def discover(timeout: float = 4.0) -> list[TvInfo]:
         except OSError:
             pass
         sock.settimeout(0.5)
-        notify = _notify_listener()
+        interfaces = platform_support.local_ipv4_interfaces()
+        notify = _notify_listener([host for host, _ in interfaces])
         # Global broadcast may use a virtual adapter; directed broadcasts use
         # each adapter's actual subnet, as measured with the official mobile app.
-        targets = list(dict.fromkeys(_local_broadcasts()
+        targets = list(dict.fromkeys(_local_broadcasts(interfaces)
                                     + [SSDP_BROADCAST, SSDP_MULTICAST]))
         for target in targets:
             _msearch(sock, target)

@@ -73,9 +73,9 @@ def _broadcast(host: str, mask: str) -> str | None:
         return None
 
 
-def broadcasts_from_ipconfig(output: str) -> list[str]:
+def _interfaces_from_ipconfig(output: str) -> list[tuple[str, str]]:
     """Read IPv4 address/mask pairs without depending on localized labels."""
-    broadcasts = set()
+    interfaces = set()
     host = None
     for line in output.splitlines():
         match = re.search(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])", line)
@@ -84,20 +84,24 @@ def broadcasts_from_ipconfig(output: str) -> list[str]:
         elif host and match:
             target = _broadcast(host, match.group(1))
             if target:
-                broadcasts.add(target)
+                interfaces.add((host, target))
             host = None
-    return sorted(broadcasts)
+    return sorted(interfaces)
 
 
-def broadcasts_from_ifconfig(output: str) -> list[str]:
+def broadcasts_from_ipconfig(output: str) -> list[str]:
+    return sorted({target for _, target in _interfaces_from_ipconfig(output)})
+
+
+def _interfaces_from_ifconfig(output: str) -> list[tuple[str, str]]:
     """Parse active macOS broadcast interfaces, including hexadecimal masks."""
-    broadcasts = set()
+    interfaces = set()
     active = False
     pending = set()
     for line in output.splitlines():
         if line and not line[0].isspace():
             if active:
-                broadcasts.update(pending)
+                interfaces.update(pending)
             pending = set()
             flags = re.search(r"<([^>]+)>", line)
             names = set(flags.group(1).split(",")) if flags else set()
@@ -124,19 +128,23 @@ def broadcasts_from_ifconfig(output: str) -> list[str]:
                 continue
         target = _broadcast(match.group(1), mask)
         if target:
-            pending.add(target)
+            pending.add((str(address), target))
     if active:
-        broadcasts.update(pending)
-    return sorted(broadcasts)
+        interfaces.update(pending)
+    return sorted(interfaces)
 
 
-def local_broadcasts() -> list[str]:
-    """Use only native interface inspection, with global/multicast fallback."""
+def broadcasts_from_ifconfig(output: str) -> list[str]:
+    return sorted({target for _, target in _interfaces_from_ifconfig(output)})
+
+
+def local_ipv4_interfaces() -> list[tuple[str, str]]:
+    """Inspect native LAN interfaces, returning their IPv4/broadcast pairs."""
     kwargs = dict(capture_output=True, text=True, errors="replace", timeout=3)
     if sys.platform == "darwin":
-        command, parser = ["/sbin/ifconfig"], broadcasts_from_ifconfig
+        command, parser = ["/sbin/ifconfig"], _interfaces_from_ifconfig
     elif os.name == "nt":
-        command, parser = ["ipconfig"], broadcasts_from_ipconfig
+        command, parser = ["ipconfig"], _interfaces_from_ipconfig
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     else:
         return []
@@ -145,3 +153,8 @@ def local_broadcasts() -> list[str]:
         return parser(result.stdout) if result.returncode == 0 else []
     except (OSError, subprocess.TimeoutExpired):
         return []
+
+
+def local_broadcasts() -> list[str]:
+    """Use only native interface inspection, with global/multicast fallback."""
+    return sorted({target for _, target in local_ipv4_interfaces()})

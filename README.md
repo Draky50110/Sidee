@@ -101,6 +101,13 @@ Firewall → Options** and allow incoming connections for Sidee. See Apple's
 and [firewall settings](https://support.apple.com/guide/mac-help/mh34041/mac).
 Sidee does not change these settings itself.
 
+Discovery also listens for VIDAA TVs that announce themselves using SSDP
+instead of replying to searches. Listening covers the detected LAN adapters;
+if port 1900 is unavailable, the existing active search remains available.
+An announcement must arrive during the four-second search window. If your TV
+announces less often, leave it on and retry **Find TV**; detection on every
+attempt is not guaranteed for these firmwares.
+
 If the app cannot start, its error dialog explains the failure. Startup errors
 are also saved in `~/Library/Logs/Sidee/sidee.log`; dashboard runtime state is
 under `~/Library/Application Support/Sidee/runtime/`. Pairing tokens continue

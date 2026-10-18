@@ -71,6 +71,12 @@ class NotifySocket:
 
 
 class TestDiscovery(unittest.TestCase):
+    def setUp(self):
+        interfaces = patch.object(client.platform_support, "local_ipv4_interfaces",
+                                  return_value=[("192.168.1.5", "192.168.1.255")])
+        interfaces.start()
+        self.addCleanup(interfaces.stop)
+
     def test_tv_found_when_it_only_answers_broadcast(self):
         connection = DiscoverySocket()
         tv = client.TvInfo("192.168.1.10", "Living room TV", is_vidaa=True)
@@ -162,6 +168,62 @@ Mask: 255.255.255.255
         self.assertIn(b"ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n", message)
         self.assertIn(b"CONTENT-LENGTH: 0\r\n", message)
         self.assertTrue(message.endswith(b"\r\n\r\n"))
+
+
+class TestNotifyListener(unittest.TestCase):
+    def memberships(self, connection):
+        return [call.args[2] for call in connection.setsockopt.call_args_list
+                if call.args[:2] == (socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP)]
+
+    def test_all_interfaces_are_joined_once(self):
+        connection = Mock()
+        with patch.object(client.socket, "socket", return_value=connection):
+            self.assertIs(client._notify_listener(
+                ["172.19.208.1", "192.168.1.5", "192.168.1.5"]), connection)
+        prefix = socket.inet_aton(client.SSDP_MULTICAST)
+        self.assertEqual(self.memberships(connection),
+                         [prefix + socket.inet_aton(host)
+                          for host in ("172.19.208.1", "192.168.1.5")])
+        connection.setblocking.assert_called_once_with(False)
+        connection.close.assert_not_called()
+
+    def test_bad_adapter_does_not_disable_other_interfaces(self):
+        connection = Mock()
+        def option(level, name, value):
+            if name == socket.IP_ADD_MEMBERSHIP and value.endswith(socket.inet_aton("172.19.208.1")):
+                raise OSError("Adapter unavailable")
+        connection.setsockopt.side_effect = option
+        with patch.object(client.socket, "socket", return_value=connection):
+            self.assertIs(client._notify_listener(["172.19.208.1", "192.168.1.5"]), connection)
+        self.assertEqual(len(self.memberships(connection)), 2)
+        connection.close.assert_not_called()
+
+    def test_default_interface_is_used_when_inspection_is_unavailable(self):
+        connection = Mock()
+        with patch.object(client.socket, "socket", return_value=connection):
+            self.assertIs(client._notify_listener([]), connection)
+        self.assertEqual(self.memberships(connection),
+                         [socket.inet_aton(client.SSDP_MULTICAST) + socket.inet_aton("0.0.0.0")])
+
+    def test_failed_memberships_close_the_socket(self):
+        connection = Mock()
+        def option(level, name, value):
+            if name == socket.IP_ADD_MEMBERSHIP:
+                raise OSError("Cannot join")
+        connection.setsockopt.side_effect = option
+        with patch.object(client.socket, "socket", return_value=connection):
+            self.assertIsNone(client._notify_listener(["192.168.1.5"]))
+        connection.close.assert_called_once_with()
+
+    def test_socket_creation_failure_is_optional(self):
+        with patch.object(client.socket, "socket", side_effect=OSError("No socket")):
+            self.assertIsNone(client._notify_listener(["192.168.1.5"]))
+
+    def test_byebye_with_alive_text_elsewhere_is_ignored(self):
+        packet = (b"NOTIFY * HTTP/1.1\r\nNT: urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
+                  b"NTS: ssdp:byebye\r\nSERVER: example ssdp:alive\r\n"
+                  b"LOCATION: http://192.168.1.10/desc.xml\r\n\r\n")
+        self.assertIsNone(client._ssdp_location(packet))
 
 
 if __name__ == "__main__":
