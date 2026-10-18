@@ -74,39 +74,33 @@ def _broadcast(host: str, mask: str) -> str | None:
 
 
 def _interfaces_from_ipconfig(output: str) -> list[tuple[str, str]]:
-    """Read IPv4 address/mask pairs without depending on localized labels.
+    """Parse Windows IPv4 + mask pairs in ipconfig output.
 
-    The parser is intentionally conservative: find lines that mention IPv4
-    (language-independent substring match) to capture the host address, then
-    look for a following line that contains a mask label (e.g. "mask",
-    "subnet", "netmask") and an IP-looking mask value. This avoids
-    accidentally pairing two consecutive IPv4 lines or picking an unrelated
-    address as a mask.
+    The Windows output is line-oriented: IPv4 appears on a line, then the mask on
+    the immediately following line. Keep the parser stateful instead of searching
+    for arbitrary IPv4-looking strings on every line, which breaks when multiple
+    adapters are present.
     """
-    interfaces = set()
-    host = None
-    ip_re = re.compile(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])")
-    for line in output.splitlines():
+    interfaces: set[tuple[str, str]] = set()
+    pending_ip = None
+    ip_match = re.compile(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])")
+    for raw in output.splitlines():
+        line = raw.strip()
         if not line:
             continue
-        text = line.strip()
-        lower = text.lower()
-        match = ip_re.search(text)
-        # If the line mentions IPv4, capture the IP on that line as the host.
+        lower = line.lower()
         if "ipv4" in lower:
-            host = match.group(1) if match else None
+            match = ip_match.search(line)
+            pending_ip = match.group(1) if match else None
             continue
-        # If we have a stored host, accept this line as the mask only when the
-        # line looks like a mask line (contains mask/subnet/netmask) and contains
-        # an IP-like mask value.
-        if host and ("mask" in lower or "subnet" in lower or "netmask" in lower):
+        if pending_ip and ("mask" in lower or "subnet" in lower or "netmask" in lower):
+            match = ip_match.search(line)
             if match:
-                target = _broadcast(host, match.group(1))
+                mask = match.group(1)
+                target = _broadcast(pending_ip, mask)
                 if target:
-                    interfaces.add((host, target))
-            host = None
-            continue
-        # Otherwise ignore unrelated lines. Do not pair with another IPv4 line.
+                    interfaces.add((pending_ip, target))
+            pending_ip = None
     return sorted(interfaces)
 
 
