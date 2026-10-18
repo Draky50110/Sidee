@@ -141,6 +141,7 @@ class TestMacDiscovery(unittest.TestCase):
             "IPv4: 192.168.1.5\nMask: 255.255.255.0\n"))
         with patch.object(platform.sys, "platform", "win32"), \
                 patch.object(platform.os, "name", "nt"), \
+                patch.object(platform.subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
                 patch.object(platform.subprocess, "run", return_value=response):
             self.assertEqual(platform.local_ipv4_interfaces(),
                              [("172.19.208.1", "172.19.223.255"),
