@@ -2,255 +2,114 @@
 
 # Sidee
 
-Install **third-party web apps on Hisense VIDAA TVs** as permanent launcher tiles,
-including **Stremio, Nuvio and Jellyfin**. Sidee is a simple **VIDAA sideload**
-tool that works with one click from your computer's browser.
+**Your TV, your freedom.**
 
-Pairing and TV control run **locally** on your network, without an account
-or a cloud service. Windows first-time setup downloads Python and its connection
-library from their official sources; the macOS app includes them. Pairing requires
-the PIN displayed on
-**your** TV screen: only you can authorize it.
+Sidee is a free, open-source tool that helps people make more of the TVs they already own. Its simple browser dashboard lets you connect to a compatible TV and manage additional web-app launcher tiles, without coding, command-line setup, or specialist knowledge.
+
+Sidee is built around three principles:
+
+- **Freedom and control:** Give people more choice over how they use their own devices.
+- **Accessibility:** Make the process straightforward, even for first-time users.
+- **Privacy and security:** Keep TV discovery and pairing on the local network, with authorization through the PIN shown on the TV.
 
 ## Requirements
 
-- Windows 10/11, or macOS 15+ on Apple Silicon or Intel
-- Internet access for the first Windows setup and for online TV apps
-- Computer and TV on the same Wi-Fi/Ethernet network
-- A VIDAA TV (tested on firmware U09.60 / V0000.09.60A.Q0707)
+- Windows 10/11, or macOS 15+ (Apple Silicon or Intel)
+- A compatible VIDAA TV and a computer on the same home Wi-Fi/Ethernet network
+- Internet access for the initial Windows setup and any online experiences you choose to open on the TV
 
-Toshiba VIDAA compatibility is experimental. Fresh pairing tries static
-authentication first, using a separate short MQTT connection identifier while
-keeping the topic identity stable. On an explicit refusal (`rc=4` or `rc=5`),
-Sidee tries the documented dynamic VIDAA profiles once each, using the brand
-declared by the TV (such as `tos` for Toshiba) when generating credentials.
-The selected brand is also saved for reconnection. The PIN is still required. Static
-firmware that issues no token must also answer an app-list request before Sidee
-saves its pairing. The selected profile and client identity are reused later.
-The Toshiba Z670 on V0000.09.60N.Q0615 has been reported to work with the official
-VIDAA remote app, but Sidee pairing and tile installation on that model still
-need testing on a real TV.
+Compatibility varies by TV model and firmware. The primary tested firmware is U09.60 / V0000.09.60A.Q0707. Support for some other models is experimental; see the [compatibility notes](docs/toshiba-compatibility.md).
 
-## Install and start
+## Get started
 
 ### Windows
 
-1. [Download Sidee for Windows](https://github.com/Empi9245/Sidee/releases/download/v0.1.4.2/sidee-windows.zip)
-   and choose **Extract all**. Open the extracted folder.
-2. Double-click **`start-windows.bat`**.
-3. Wait for your dashboard to open in the browser. Everything else happens there.
+1. [Download Sidee for Windows](https://github.com/Empi9245/Sidee/releases/download/v0.1.4.2/sidee-windows.zip) and extract the ZIP.
+2. Double-click `start-windows.bat` in the extracted folder.
+3. Wait for the dashboard to open in your browser, then follow the on-screen steps.
 
-The first launch downloads a private copy of Python and the TV connection
-library into `.runtime/`. You do not need to install Python, enter commands,
-or copy certificates. Later launches reuse these files without downloading
-them again. Administrator rights are not needed.
+On first launch, Sidee downloads a private, version-pinned Python runtime and its connection dependency from official sources, verifying the downloads using SHA-256. You do not need to install Python yourself, enter commands, or grant administrator rights. Later launches reuse the downloaded runtime.
 
-Keep the launcher's window open while using the dashboard. Double-clicking
-the launcher again reopens the dashboard already running for that folder.
-If the browser does not open automatically, use the complete link printed
-beside `this computer`, including its `?key=...` part. If Windows asks about
-network access, allow the app on your private home network so it can find the TV.
-
-Setup uses the [official Python embeddable distribution](https://www.python.org/downloads/release/python-31316/)
-and [Eclipse Paho from PyPI](https://pypi.org/project/paho-mqtt/2.1.0/), with
-pinned versions and SHA-256 verification. They stay inside the extracted
-folder. The TV client certificate bundle is included with the app;
-your own TV PIN is still required to authorize pairing. Saved TV tokens
-stay in your user profile and are never included in the download.
+Keep the launcher window open while using the dashboard. If the browser does not open automatically, use the full dashboard link shown in the launcher, including its access key. If Windows requests network access, allow it on your trusted home network.
 
 ### macOS
 
-The macOS download contains **Sidee.app** with Python and its dependencies.
-It opens the same browser dashboard as Windows, with a small control window
-containing **Open dashboard** and **Quit Sidee**. No Python installation or
-Terminal window is needed.
+The macOS download includes Sidee.app and its required runtime, so no separate Python installation or Terminal commands are needed.
 
-1. Open [Build Sidee in GitHub Actions](https://github.com/Empi9245/Sidee/actions/workflows/build.yml)
-   and select a successful run for the commit you want. In **Artifacts**, download
-   **Sidee-macOS-arm64** for an Apple Silicon Mac (M-series), or
-   **Sidee-macOS-x64** for an Intel Mac. GitHub requires sign-in to download
-   workflow artifacts. Each artifact contains a `.dmg` and a `.app.zip`.
-   Published downloads, when available, are on the [Releases page](https://github.com/Empi9245/Sidee/releases).
-2. Extract the artifact ZIP, open `Sidee-macOS-arm64.dmg` or
-   `Sidee-macOS-x64.dmg`, and drag **Sidee.app** onto **Applications**.
-   Eject the disk image, then open Sidee from Applications.
-3. This first version is not signed with a Developer ID or notarized.
-   macOS may say **"developer cannot be verified"** or that Apple cannot
-   check the app. After trying to open it once, go to **System Settings →
-   Privacy & Security → Open Anyway**, then confirm **Open**. Follow
-   [Apple's normal procedure](https://support.apple.com/en-us/102445)
-   only for a download you trust.
-4. If macOS asks to find devices on your local network, allow Sidee.
-   If it asks about incoming connections, allow Sidee on your home network
-   so your phone can open its dashboard. Then follow the pairing steps below.
+1. Get the package for your Mac from [Releases](https://github.com/Empi9245/Sidee/releases) or a successful [build workflow](https://github.com/Empi9245/Sidee/actions/workflows/build.yml). Choose `arm64` for Apple Silicon or `x64` for Intel.
+2. Open the DMG, drag Sidee.app to Applications, and launch it.
+3. Use **Open dashboard** in Sidee's control window.
 
-Keep Sidee's control window open while using the dashboard. **Open dashboard**
-reopens the browser; **Quit Sidee** stops its server. Closing a browser tab does
-not stop the app. The download uses separate native Apple Silicon and Intel
-builds; it is not a Universal Binary. The app requires macOS 15 or later;
-CI builds and checks both architectures on macOS 15.
+**Important:** The current macOS builds are not signed or notarized. macOS may prevent them from opening automatically. If you trust the downloaded package, follow [Apple's instructions](https://support.apple.com/en-us/102445) for opening an unverified app. If prompted, grant local network access so Sidee can discover your TV. The builds are checked in CI but still require broader testing on physical Macs.
 
-> La versione macOS viene compilata automaticamente su runner macOS GitHub Actions e necessita ancora di test reali su hardware Mac.
+Sidee's control window must remain open while you use the dashboard; **Quit Sidee** stops the local dashboard service.
 
-If **Find TV** returns no TV, check that the Mac and TV are on the same home
-network, then check **System Settings → Privacy & Security → Local Network**
-for Sidee. A VPN, a guest Wi-Fi network, or another active adapter can select
-the wrong route. For phone access, check **System Settings → Network →
-Firewall → Options** and allow incoming connections for Sidee. See Apple's
-[Local Network settings](https://support.apple.com/guide/mac-help/mchla4f49138/mac)
-and [firewall settings](https://support.apple.com/guide/mac-help/mh34041/mac).
-Sidee does not change these settings itself.
+## Connect your TV
 
-Discovery also listens for VIDAA TVs that announce themselves using SSDP
-instead of replying to searches. Listening covers the detected LAN adapters;
-if port 1900 is unavailable, the existing active search remains available.
-An announcement must arrive during the four-second search window. If your TV
-announces less often, leave it on and retry **Find TV**; detection on every
-attempt is not guaranteed for these firmwares.
+1. **Find TV:** Turn on your TV, put it on the same network as your computer, and select **Find TV**. Sidee uses the discovered address rather than assuming a fixed TV IP. If discovery fails, you can enter the address shown in the TV's network settings.
+2. **Request code:** Select **Request code** and enter the four-digit PIN displayed on your TV, then choose **Confirm code**. Pairing requires this confirmation.
+3. **Manage launcher tiles:** Choose an option offered in the dashboard and follow the confirmation steps. The available choices are maintained with Sidee; the dashboard does not currently accept arbitrary web-app URLs.
 
-If the app cannot start, its error dialog explains the failure. Startup errors
-are also saved in `~/Library/Logs/Sidee/sidee.log`; dashboard runtime state is
-under `~/Library/Application Support/Sidee/runtime/`. Pairing tokens continue
-to use `~/.sidee/session.json`. Keep tokens and dashboard access links private.
+Registered tiles remain in the TV launcher across restarts, even when Sidee is no longer running. The availability of the web experiences opened by those tiles depends on their own network requirements.
 
-## Pair your TV and install an app
+**Want to use your phone?** The dashboard provides a locally generated QR code so you can open its controls on a phone connected to the same home network. Keep Sidee running on the computer and keep dashboard access links private.
 
-1. **Find TV** — turn on the TV and connect it to the same network as
-   your computer, then press **Find TV** in the dashboard.
-   Sidee uses the address returned by discovery, without a preset TV IP.
-   Saved pairings are reused only after that TV has been found and selected.
-   If automatic discovery fails, expand **TV not found? Check its IP address**
-   and enter the IPv4 address from the TV's network settings. Sidee verifies
-   that this is a VIDAA TV and checks TCP port 36669 before allowing pairing.
-   A blocked discovery may indicate a Mac Local Network permission, VPN or
-   Wi-Fi isolation issue. An unreachable port 36669 suggests a connection
-   issue; neither check bypasses the TV PIN. The installed app list remains
-   limited to the presets maintained by the Sidee developer.
-2. **Request code** — click **Request code** to display a PIN on your TV.
-   Enter those 4 digits in the dashboard's **TV PIN** field and click
-   **Confirm code**. Keep the TV on while connecting. If the code expires,
-   click **Request code** again to start a new attempt.
-3. **Install Apps** — choose **Nuvio**, **Stremio**, or **Jellyfin** in the
-   dashboard, wait for confirmation, then open the tile from the TV launcher.
-   The Stremio option installs the full **VIDAA TV-adapted Stremio build**,
-   not the limited VIDAA Stremio Lite app. It uses the Stremio Theater TV
-   interface with a modern Stremio core plus VIDAA-specific D-pad, focus,
-   keyboard and viewport fixes. The build is community-maintained by
-   [NoobyGains/stremio-vidaa-tv](https://github.com/NoobyGains/stremio-vidaa-tv).
-   You can optionally paste a LAN streaming-server URL or the Remote HTTPS URL
-   from Stremio Service/Desktop during installation.
+## How Sidee works
 
-The tile stays in the launcher **permanently**, even after unplugging and
-restarting the TV: the web app is hosted online, so Sidee does not need to
-stay running. If you use Stremio with Stremio Service/Desktop, that streaming
-server still needs to be running while you use server-backed playback.
+Sidee uses the TV's local control interface for network discovery, PIN-authorized pairing, and launcher management. The connection uses MQTT/TLS on port 36669. Sidee does not require an account or cloud service for discovery, pairing, or TV control.
 
+Sidee is designed to use functions available to an authorized, paired TV client. It does not install native system software or modify the TV's operating system.
 
-> **Using your phone?** Scan the QR in the dashboard's **Use your phone**
-> section with your phone's camera. You can then enter the TV PIN while
-> standing beside your TV. Keep your phone, TV and computer on the same
-> home network, and leave Sidee running on the computer. A complete
-> phone link is also shown below the instructions. On Windows it is also printed
-> in the launcher's window. QR generation works locally and is included in both
-> downloads.
+## Privacy and security
 
-## Other systems and development
+- **No Sidee telemetry:** TV discovery and control take place locally; Sidee does not require an account.
+- **Consent-based pairing:** You must confirm the PIN shown on your TV.
+- **Local credentials:** Saved pairing tokens remain in your user profile at `~/.sidee/session.json` (mode 600 on Unix; inherited user-profile permissions on Windows).
+- **Protected dashboard access:** Treat dashboard links and saved pairing tokens as private. Only share access with people you trust on your home network.
+- **Limited operations:** Sidee manages web launcher tiles through the TV's authorized control interface; it does not make system-level changes.
 
-With Python 3.9+ already installed, start the same dashboard with:
+The first Windows setup downloads verified dependencies. Web experiences opened from the TV launcher may make their own network connections independently of Sidee.
+
+## Troubleshooting
+
+If **Find TV** cannot locate your TV, check that both devices share the same network and that a VPN, guest Wi-Fi, or firewall is not blocking local discovery. The manual IP option checks that the destination responds as a compatible TV and that port 36669 is reachable; it never bypasses PIN authorization.
+
+Some TVs advertise themselves rather than replying directly to discovery. In that case, keep the TV on and retry **Find TV**. For known firmware-specific pairing limitations, see the [compatibility notes](docs/toshiba-compatibility.md).
+
+On macOS, check **System Settings → Privacy & Security → Local Network** and, if needed, the firewall permissions for Sidee. Diagnostic logs are stored at `~/Library/Logs/Sidee/sidee.log`. Keep logs containing private access data confidential.
+
+## Development
+
+With Python 3.9+ already installed, the dashboard can also be started from a source checkout:
 
 ```bash
 python -m pip install -r requirements.txt
 python sidee.py
 ```
 
-From a repository checkout, build the distributable Windows ZIP with
-`python tools/build_windows_release.py`. It includes the app and its
-connection bundle, excluding local runtimes, saved sessions, and personal
-configuration. The resulting file is `dist/sidee-windows.zip`.
-
-macOS packaging uses PyInstaller to bundle the same Python core into a native
-`.app`, then creates a `.dmg` with Apple's disk-image tools. Build instructions,
-architecture checks, CI smoke tests, and future signing options are in
-[macOS build notes](docs/macos-build.md).
-
-[Build Sidee](https://github.com/Empi9245/Sidee/actions/workflows/build.yml)
-checks Windows and both macOS architectures and uploads their packages as
-workflow artifacts. A `v*` tag prepares a **draft** GitHub Release containing
-the Windows ZIP and both macOS packages; publishing remains a separate step.
-
-To check source changes, run `python -m unittest discover -s tests`.
-Dashboard interaction tests use Node.js: `node --test tests/test_dashboard_selection.js`.
-
-Command-line commands (optional):
-
-Replace `TV_IP` with the address shown by **Find TV** on your own network.
+Optional command-line interface:
 
 ```bash
-python sidee.py discover           # find TVs
-python sidee.py pair TV_IP        # pair (prompts for the PIN)
-python sidee.py install nuvio      # register the Nuvio tile
-python sidee.py install stremio    # full Stremio TV build for VIDAA
-python sidee.py install stremio --server https://YOUR-STREMIO-REMOTE-URL
-python sidee.py list               # list launcher tiles
-python sidee.py launch nuvio       # launch immediately
-python sidee.py refresh            # refresh tokens (last ~30 days)
+python sidee.py discover
+python sidee.py pair TV_IP
+python sidee.py install PRESET_ID
+python sidee.py list
+python sidee.py launch PRESET_ID
+python sidee.py refresh
 ```
 
-## How it works (briefly)
+Replace `TV_IP` with your TV's LAN address and `PRESET_ID` with an available built-in option. Pairing always requires the TV's authorization.
 
-VIDAA TVs expose a control channel on the local network (MQTT/TLS,
-port 36669) used by the official mobile app: SSDP discovery,
-PIN pairing, and actions available to paired clients — including
-registering web apps in the launcher, just as the phone app does when
-you install from the catalog. Sidee is a client for that channel:
-the same mechanism, with your app in place of one from the catalog.
+Run Python tests with `python -m unittest discover -s tests` and dashboard interaction tests with `node --test tests/test_dashboard_selection.js`.
 
-## Security and privacy
+Packaging information is in the [macOS build notes](docs/macos-build.md). Automated Windows and macOS builds are available through [GitHub Actions](https://github.com/Empi9245/Sidee/actions/workflows/build.yml).
 
-- **No telemetry**: pairing and TV control communicate with your TV on the
-  local network. Windows first-time setup downloads Python and Paho from their
-  official sources; the macOS download bundles them.
-- Session tokens are stored in `~/.sidee/session.json`
-  in your user profile (permissions 600 on Unix; inherited profile
-  permissions on Windows). Existing pairings from earlier versions are
-  reused automatically, without requiring a new TV PIN.
-- The PIN on the TV screen provides consent: pairing requires someone
-  in front of the TV
-- Available actions are limited to adding/listing/launching web tiles.
-  No system writes
+## Why Sidee exists
 
-## Uninstalling a tile
+Sidee began with a simple idea: people should have more freedom to use technology they already own. After a lot of experimentation, that idea became a small tool designed to make everyday tasks easier and more approachable. If it helps you, please consider supporting continued development.
 
-From the TV launcher: tile context menu → remove (added tiles
-can be removed just like Store apps).
-
-## Why this project exists
-
-This tool didn't start with a brilliant idea. It started with many
-failed attempts.
-
-I had already spent a whole month trying to install my apps on the TV:
-guides, tricks, and methods that led nowhere. Then I gave up.
-When I picked it up again, the TV seemed built to say no, and for
-a moment, I almost gave up again.
-
-The breakthrough came from understanding one simple thing: the official
-phone app talks to the TV locally, and paired clients have the same
-permissions. From there, evenings of measurements and experiments became
-the three clicks on this page.
-
-I made it with heart, and kept it simple so you don't have to go through
-what I did. **If it saved you those weeks, buy me a coffee** it's
-the best way to tell me "keep going".
-
-## Support the project
-
-☕ **Ko-fi**: [ko-fi.com/sidee](https://ko-fi.com/sidee)
-
-Configured in `.github/FUNDING.yml`.
+☕ [Support Sidee on Ko-fi](https://ko-fi.com/sidee)
 
 ## License
 
-MIT — see [LICENSE](LICENSE). This project is independent and not affiliated
-with Hisense; trademarks belong to their respective owners. Use it only on
-**your own** TV.
+MIT — see [LICENSE](LICENSE). Sidee is an independent project and is not affiliated with TV manufacturers. Use it only with devices you own or are authorized to manage.
